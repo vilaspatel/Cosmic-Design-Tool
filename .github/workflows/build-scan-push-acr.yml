@@ -43,7 +43,7 @@ jobs:
           password: ${{ env.ACR_PASSWORD }}
 
       - name: Set image name
-        run: echo "IMAGE_NAME=${{ env.REGISTRY }}/st2-cp-ammo-${{ matrix.service }}:${{ env.IMAGE_TAG }}" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME=${{ env.REGISTRY }}/cosmindesigntool-${{ matrix.service }}:${{ env.IMAGE_TAG }}" >> $GITHUB_ENV
 
       - name: Build and push image
         uses: docker/build-push-action@v5
@@ -54,6 +54,6 @@ jobs:
           push: true
           tags: |
             ${{ env.IMAGE_NAME }}
-            ${{ env.REGISTRY }}/st2-cp-ammo-${{ matrix.service }}:latest
+            ${{ env.REGISTRY }}/cosmindesigntool-${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

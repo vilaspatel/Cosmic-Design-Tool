@@ -1,240 +1,286 @@
-import React, { useState } from 'react';
-import ReactFlow, {
-    Background,
-    Controls,
-    type Node,
-    type Edge,
-    ReactFlowProvider,
-    MarkerType
-} from 'reactflow';
+import React, { useEffect, useMemo, useState } from 'react';
+import ReactFlow, { Background, Controls, MarkerType, ReactFlowProvider, type Edge, type Node, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
 import axios from 'axios';
-import type { ImpactAnalysis, NodeType } from '../app_types';
-import { AlertCircle, Search } from 'lucide-react';
+import dagre from 'dagre';
+import { AlertTriangle, Search, Server, Layout, Database, Layers, Globe, GitBranch, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import type { ImpactAnalysis } from '../app_types';
+import CardNode from './CardNode';
 
-const nodeColorMap: Record<NodeType, { bg: string; border: string; text: string }> = {
-    Organization: { bg: '#2c3e50', border: '#1a252f', text: 'white' },
-    Program: { bg: '#34495e', border: '#2c3e50', text: 'white' },
-    Application: { bg: '#3498db', border: '#2980b9', text: 'white' },
-    Service: { bg: '#2ecc71', border: '#27ae60', text: 'white' },
-    ExternalSystem: { bg: '#95a5a6', border: '#7f8c8d', text: 'white' },
-    VirtualMachine: { bg: '#7f8c8d', border: '#34495e', text: 'white' },
-    KubernetesCluster: { bg: '#34495e', border: '#2c3e50', text: 'white' },
-    AppService: { bg: '#16a085', border: '#1abc9c', text: 'white' },
-    FunctionApp: { bg: '#27ae60', border: '#2ecc71', text: 'white' },
-    OnPremServer: { bg: '#2c3e50', border: '#1a252f', text: 'white' },
-    Database: { bg: '#9b59b6', border: '#8e44ad', text: 'white' },
-    Cache: { bg: '#f1c40f', border: '#f39c12', text: '#333' },
-    Queue: { bg: '#e67e22', border: '#d35400', text: 'white' },
-    CloudProvider: { bg: '#2980b9', border: '#3498db', text: 'white' },
-    Subscription: { bg: '#2980b9', border: '#3498db', text: 'white' },
-    Region: { bg: '#2980b9', border: '#3498db', text: 'white' },
-    DataCenter: { bg: '#2980b9', border: '#3498db', text: 'white' }
+const panelStyle: React.CSSProperties = {
+    background: '#0f172a',
+    border: '1px solid #1e293b',
+    borderRadius: '12px'
+};
+
+const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
+    const graph = new dagre.graphlib.Graph();
+    graph.setDefaultEdgeLabel(() => ({}));
+    graph.setGraph({ rankdir: 'LR', ranksep: 130, nodesep: 90 });
+
+    nodes.forEach((node) => graph.setNode(node.id, { width: 240, height: 110 }));
+    edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
+    dagre.layout(graph);
+
+    return nodes.map((node) => {
+        const layout = graph.node(node.id);
+        return {
+            ...node,
+            position: { x: layout.x - 120, y: layout.y - 55 }
+        };
+    });
+};
+
+const FlowView = ({ nodes, edges, onNodeClick, onPaneClick }: { nodes: Node[]; edges: Edge[]; onNodeClick: (node: Node) => void; onPaneClick: () => void }) => {
+    const { fitView } = useReactFlow();
+
+    useEffect(() => {
+        if (!nodes.length) return;
+        const timer = setTimeout(() => fitView({ padding: 0.2, duration: 700 }), 80);
+        return () => clearTimeout(timer);
+    }, [nodes, fitView]);
+
+    return (
+        <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={{ default: CardNode }}
+            onNodeClick={(_, node) => onNodeClick(node)}
+            onPaneClick={onPaneClick}
+            panOnScroll
+            zoomOnScroll
+            panOnDrag
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            minZoom={0.2}
+            maxZoom={2}
+            nodesConnectable={false}
+        >
+            <Background color="#1e293b" gap={24} size={1.2} />
+            <Controls />
+        </ReactFlow>
+    );
 };
 
 export const ImpactViewer: React.FC = () => {
     const [serviceName, setServiceName] = useState('');
     const [loading, setLoading] = useState(false);
     const [impactData, setImpactData] = useState<ImpactAnalysis | null>(null);
-
     const [nodes, setNodes] = useState<Node[]>([]);
     const [edges, setEdges] = useState<Edge[]>([]);
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [leftCollapsed, setLeftCollapsed] = useState(false);
+    const [rightCollapsed, setRightCollapsed] = useState(false);
 
     const analyzeImpact = async () => {
-        if (!serviceName) return;
+        if (!serviceName.trim()) return;
         setLoading(true);
+        setSelectedNodeId(null);
         try {
-            const res = await axios.get(`http://localhost:8000/impact/${serviceName}`);
+            const res = await axios.get(`http://localhost:8000/impact/${serviceName.trim()}`);
             const data: ImpactAnalysis = res.data;
+            const impactedDepth = new Map(data.impacted_nodes.map((node) => [node.id, node.depth]));
 
-            if (data.nodes) {
-                const impactedIds = data.impacted_nodes.map(inode => inode.id);
-
-                // Map nodes with specialized styling
-                const flowNodes = data.nodes.map((n, index) => {
-                    const impactInfo = data.impacted_nodes.find(inode => inode.id === n.id);
-                    // Use depth 0 for root cause styling
-                    const isRoot = impactInfo?.depth === 0;
-                    const isDirect = impactInfo?.depth === 1;
-                    const isIndirect = impactInfo ? impactInfo.depth > 1 : false;
-
-                    const color = nodeColorMap[n.type] || { bg: '#fff', border: '#ccc', text: '#333' };
-
-                    let style: any = {
-                        background: color.bg,
-                        color: color.text,
-                        border: `2px solid ${color.border}`,
-                        borderRadius: '5px',
-                        padding: '10px',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        width: '180px',
-                        transition: 'all 0.3s ease'
-                    };
-
-                    if (isRoot) {
-                        style.boxShadow = '0 0 25px 5px rgba(231, 76, 60, 0.8)';
-                        style.border = '3px solid #e74c3c';
-                        style.background = '#e74c3c';
-                        style.color = 'white';
-                    } else if (isDirect) {
-                        style.border = '2px solid #e74c3c';
-                        style.background = '#e74c3c';
-                        style.color = 'white';
-                    } else if (isIndirect) {
-                        style.border = '2px solid #f39c12';
-                        style.background = '#f39c12';
-                        style.color = 'white';
-                    } else {
-                        style.opacity = 0.4;
-                    }
-
-                    return {
-                        id: n.id,
-                        type: 'default',
-                        position: { x: (index % 4) * 250, y: Math.floor(index / 4) * 150 }, // Basic auto-layout
-                        data: { label: `${n.name}\n(${n.type})` },
-                        style
-                    };
-                });
-
-                const flowEdges = data.edges.map(e => {
-                    const isCrossProgram = e.properties?.cross_program === true;
-                    const isImpactPath = impactedIds.includes(e.from) && impactedIds.includes(e.to);
-
-                    return {
-                        id: `e-${e.from}-${e.to}-${e.type}`,
-                        source: e.from,
-                        target: e.to,
-                        label: e.type,
-                        type: 'smoothstep',
-                        animated: isImpactPath,
-                        style: {
-                            stroke: isImpactPath ? (isCrossProgram ? '#e74c3c' : '#e74c3c') : '#ccc',
-                            strokeWidth: isImpactPath ? 3 : 1,
-                            strokeDasharray: isCrossProgram ? '5,5' : '0'
-                        },
-                        markerEnd: {
-                            type: MarkerType.ArrowClosed,
-                            color: isImpactPath ? '#e74c3c' : '#ccc'
+            const flowNodes: Node[] = data.nodes.map((node) => {
+                const depth = impactedDepth.get(node.id);
+                const isImpacted = depth !== undefined;
+                const borderColor = depth === 0 ? '#ef4444' : depth === 1 ? '#f59e0b' : isImpacted ? '#eab308' : '#334155';
+                return {
+                    id: node.id,
+                    type: 'default',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        id: node.id,
+                        type: node.type,
+                        name: node.name,
+                        properties: node.properties,
+                        rawNode: node,
+                        impactStyle: {
+                            borderColor,
+                            boxShadow: isImpacted ? `0 0 0 2px ${borderColor}44` : '0 6px 14px rgba(0, 0, 0, 0.35)'
                         }
-                    };
-                });
+                    },
+                    style: { width: 240, background: 'transparent', border: 'none' }
+                };
+            });
 
-                setNodes(flowNodes);
-                setEdges(flowEdges);
-                setImpactData(data);
-            }
+            const impacted = new Set(data.impacted_nodes.map((item) => item.id));
+            const flowEdges: Edge[] = data.edges.map((edge) => {
+                const isImpactPath = impacted.has(edge.from) && impacted.has(edge.to);
+                const color = isImpactPath ? '#ef4444' : '#64748b';
+                return {
+                    id: `edge-${edge.from}-${edge.to}-${edge.type}`,
+                    source: edge.from,
+                    target: edge.to,
+                    type: 'smoothstep',
+                    label: edge.type,
+                    labelStyle: { fill: '#cbd5e1', fontSize: 10, fontWeight: 700 },
+                    labelBgStyle: { fill: '#0f172a', fillOpacity: 0.95, stroke: '#334155', strokeWidth: 1, rx: 8, ry: 8 },
+                    labelBgPadding: [8, 4],
+                    animated: isImpactPath,
+                    style: { stroke: color, strokeWidth: isImpactPath ? 2.6 : 1.5, opacity: isImpactPath ? 1 : 0.55 },
+                    markerEnd: { type: MarkerType.ArrowClosed, color }
+                };
+            });
+
+            setNodes(getLayoutedElements(flowNodes, flowEdges));
+            setEdges(flowEdges);
+            setImpactData(data);
         } catch (error) {
             console.error(error);
-            alert('Service not found or analysis failed');
+            alert('Service not found or impact analysis failed.');
         } finally {
             setLoading(false);
         }
     };
 
+    const selectedNode = useMemo(() => impactData?.nodes.find((node) => node.id === selectedNodeId) || null, [impactData, selectedNodeId]);
+    const summary = impactData?.summary;
+    const impactTree = useMemo(() => {
+        if (!impactData) return [];
+        return [...impactData.impacted_nodes].sort((a, b) => a.depth - b.depth).map((item) => ({
+            ...item,
+            node: impactData.nodes.find((n) => n.id === item.id)
+        }));
+    }, [impactData]);
+
     return (
-        <div style={{ display: 'flex', width: '100%', height: '100%', background: '#f0f2f5' }}>
-            {/* Sidebar for Controls & Summary */}
-            <div style={{
-                width: '320px',
-                background: 'white',
-                borderRight: '1px solid #ddd',
-                padding: '20px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '20px',
-                zIndex: 10
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e74c3c' }}>
-                    <AlertCircle size={24} />
-                    <h2 style={{ margin: 0, fontSize: '18px' }}>Impact Workspace</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', width: '100%', minHeight: 0, background: '#020617' }}>
+            <div style={{ borderBottom: '1px solid #1e293b', background: '#0f172a', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                    <div style={{ color: '#f8fafc', fontSize: '14px', fontWeight: 700 }}>Impact Viewer</div>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>Incident summary, blast radius graph, impact tree, and node inspection.</div>
                 </div>
-
-                <div style={{ position: 'relative' }}>
-                    <input
-                        value={serviceName}
-                        onChange={(e) => setServiceName(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && analyzeImpact()}
-                        placeholder="Target Service Identifier..."
-                        style={{
-                            width: '100%',
-                            padding: '12px 40px 12px 12px',
-                            borderRadius: '8px',
-                            border: '2px solid #eee',
-                            fontSize: '14px',
-                            boxSizing: 'border-box'
-                        }}
-                    />
-                    <Search
-                        size={18}
-                        style={{ position: 'absolute', right: '12px', top: '12px', color: '#999', cursor: 'pointer' }}
-                        onClick={analyzeImpact}
-                    />
-                </div>
-
-                {loading && <div style={{ textAlign: 'center', color: '#666' }}>Traversing graph...</div>}
-
-                {impactData && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        <div style={{ padding: '15px', background: '#fdf0f0', borderLeft: '4px solid #e74c3c', borderRadius: '4px' }}>
-                            <div style={{ fontSize: '12px', color: '#e74c3c', fontWeight: 'bold', marginBottom: '5px' }}>BLAST RADIUS SUMMARY</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{impactData.summary.services}</div>
-                                    <div style={{ fontSize: '10px', color: '#666' }}>SERVICES</div>
-                                </div>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{impactData.summary.applications}</div>
-                                    <div style={{ fontSize: '10px', color: '#666' }}>APPS</div>
-                                </div>
-                                <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{impactData.summary.programs}</div>
-                                    <div style={{ fontSize: '10px', color: '#666' }}>PROGRAMS</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px' }}>
-                            <h4 style={{ margin: '0 0 10px 0', fontSize: '13px' }}>LEGEND</h4>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#e74c3c', boxShadow: '0 0 5px red' }} />
-                                    <span>Root Cause / Direct Impact</span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: '#f39c12' }} />
-                                    <span>Indirect Impact</span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: '#ccc', opacity: 0.4 }} />
-                                    <span>Context (Non-impacted)</span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '20px', borderTop: '2px dashed #e74c3c' }} />
-                                    <span>Cross-Program Link</span>
-                                </div>
-                            </div>
-                        </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '440px', maxWidth: '50%' }}>
+                    <div style={{ position: 'relative', flexGrow: 1 }}>
+                        <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+                        <input
+                            value={serviceName}
+                            onChange={(event) => setServiceName(event.target.value)}
+                            onKeyDown={(event) => event.key === 'Enter' && analyzeImpact()}
+                            placeholder="Enter service identifier"
+                            style={{ width: '100%', background: '#111827', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '8px', padding: '8px 10px 8px 32px', fontSize: '13px' }}
+                        />
                     </div>
-                )}
+                    <button onClick={analyzeImpact} disabled={loading} style={{ background: '#dc2626', border: '1px solid #b91c1c', color: 'white', borderRadius: '8px', padding: '8px 12px', fontSize: '12px' }}>
+                        {loading ? 'Analyzing...' : 'Analyze Impact'}
+                    </button>
+                </div>
             </div>
 
-            {/* Main Canvas */}
-            <div style={{ flexGrow: 1, height: '100%', position: 'relative' }}>
-                <ReactFlowProvider>
-                    <ReactFlow
-                        nodes={nodes}
-                        edges={edges}
-                        nodesDraggable={false}
-                        nodesConnectable={false}
-                        elementsSelectable={false}
-                        fitView
-                    >
-                        <Background color="#aaa" gap={20} />
-                        <Controls />
-                    </ReactFlow>
-                </ReactFlowProvider>
+            <div style={{ display: 'flex', flexGrow: 1, minHeight: 0 }}>
+                <aside style={{ width: leftCollapsed ? '56px' : '300px', transition: 'width 0.2s ease', borderRight: '1px solid #1e293b', padding: '14px', overflowY: 'auto', background: '#0b1226', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: leftCollapsed ? 'center' : 'flex-end' }}>
+                        <button
+                            onClick={() => setLeftCollapsed((prev) => !prev)}
+                            style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', color: '#cbd5e1', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                            title={leftCollapsed ? 'Expand Panel' : 'Collapse Panel'}
+                        >
+                            {leftCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+                        </button>
+                    </div>
+                    {!leftCollapsed && <div style={{ ...panelStyle, padding: '12px' }}>
+                        <div style={{ color: '#f8fafc', fontSize: '13px', fontWeight: 700, marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <AlertTriangle size={16} color="#f59e0b" />
+                            Incident Summary
+                        </div>
+                        {summary ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: '8px' }}>
+                                {[
+                                    { icon: Server, label: 'Services', value: summary.services },
+                                    { icon: Layout, label: 'Apps', value: summary.applications },
+                                    { icon: Database, label: 'DBs', value: summary.databases },
+                                    { icon: Layers, label: 'Queues', value: summary.queues },
+                                    { icon: Globe, label: 'External', value: summary.external_systems },
+                                    { icon: GitBranch, label: 'Programs', value: summary.programs }
+                                ].map((item) => (
+                                    <div key={item.label} style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', padding: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#94a3b8', fontSize: '11px' }}><item.icon size={13} /> {item.label}</div>
+                                        <div style={{ color: '#f8fafc', fontSize: '17px', fontWeight: 700, marginTop: '2px' }}>{item.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ color: '#64748b', fontSize: '12px' }}>Run an analysis to see incident summary.</div>
+                        )}
+                    </div>}
+
+                    {!leftCollapsed && <div style={{ ...panelStyle, padding: '12px' }}>
+                        <div style={{ color: '#f8fafc', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>Impact Tree</div>
+                        {!impactTree.length ? (
+                            <div style={{ color: '#64748b', fontSize: '12px' }}>No impact chain loaded.</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                {impactTree.map((item) => (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setSelectedNodeId(item.id)}
+                                        style={{
+                                            textAlign: 'left',
+                                            width: '100%',
+                                            background: selectedNodeId === item.id ? '#1e293b' : '#111827',
+                                            border: selectedNodeId === item.id ? '1px solid #475569' : '1px solid #334155',
+                                            borderRadius: '8px',
+                                            padding: '8px',
+                                            color: '#e2e8f0'
+                                        }}
+                                    >
+                                        <div style={{ color: '#f8fafc', fontSize: '12px', fontWeight: 600, paddingLeft: `${item.depth * 12}px` }}>
+                                            {item.node?.name || item.id}
+                                        </div>
+                                        <div style={{ color: '#94a3b8', fontSize: '11px', paddingLeft: `${item.depth * 12}px` }}>
+                                            depth {item.depth} · {item.node?.type || 'unknown'}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>}
+                </aside>
+
+                <div style={{ flexGrow: 1, minWidth: 0 }}>
+                    <ReactFlowProvider>
+                        <FlowView nodes={nodes} edges={edges} onNodeClick={(node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} />
+                    </ReactFlowProvider>
+                </div>
+
+                <aside style={{ width: rightCollapsed ? '56px' : '340px', transition: 'width 0.2s ease', borderLeft: '1px solid #1e293b', background: '#0b1226', padding: '14px', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', justifyContent: rightCollapsed ? 'center' : 'flex-end', marginBottom: rightCollapsed ? 0 : '10px' }}>
+                        <button
+                            onClick={() => setRightCollapsed((prev) => !prev)}
+                            style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', color: '#cbd5e1', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                            title={rightCollapsed ? 'Expand Inspector' : 'Collapse Inspector'}
+                        >
+                            {rightCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
+                        </button>
+                    </div>
+                    {!rightCollapsed && <div style={{ ...panelStyle, padding: '12px' }}>
+                        <div style={{ color: '#f8fafc', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>Node Inspector</div>
+                        {!selectedNode ? (
+                            <div style={{ color: '#64748b', fontSize: '12px' }}>Select a node from the graph or impact tree.</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', padding: '10px' }}>
+                                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Type</div>
+                                    <div style={{ color: '#f8fafc', fontSize: '14px', fontWeight: 700 }}>{selectedNode.type}</div>
+                                </div>
+                                <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', padding: '10px' }}>
+                                    <div style={{ color: '#94a3b8', fontSize: '11px' }}>Name</div>
+                                    <div style={{ color: '#f8fafc', fontSize: '14px', fontWeight: 700 }}>{selectedNode.name}</div>
+                                </div>
+                                <div style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', padding: '10px' }}>
+                                    <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '6px' }}>Properties</div>
+                                    {Object.entries(selectedNode.properties || {}).map(([key, value]) => (
+                                        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                                            <span style={{ color: '#94a3b8', fontSize: '11px' }}>{key}</span>
+                                            <span style={{ color: '#cbd5e1', fontSize: '11px', textAlign: 'right' }}>{String(value)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>}
+                </aside>
             </div>
         </div>
     );

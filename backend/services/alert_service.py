@@ -13,7 +13,7 @@ class AlertService:
     def get_impact_analysis(self, service_id: str, environment: str = None):
         with self.graph_service.get_session() as session:
             # 1. Find the root service (must be active)
-            query = "MATCH (n:Node {is_active: true}) WHERE (n.id = $sid OR n.name = $sid OR n.datadog_service = $sid)"
+            query = "MATCH (n:Node {is_active: true}) WHERE (n.id = $sid OR n.name = $sid OR n.service_identifier = $sid)"
             params = {"sid": service_id}
             if environment:
                 query += " AND n.environment = $env"
@@ -31,7 +31,7 @@ class AlertService:
             subgraph_query = """
             MATCH (start:Node {id: $root_id})
             CALL apoc.path.subgraphAll(start, {
-                maxLevel: 6,
+                maxLevel: 4,
                 relationshipFilter: "CALLS|CALLS_EXTERNAL|RUNS_ON|READS_FROM|WRITES_TO|PUBLISHES_TO|SUBSCRIBES_TO|USES_CACHE|HOSTED_IN|LOCATED_IN|CONTAINS|OWNS|HAS_SERVICE|HAS_SUBSCRIPTION|HAS_REGION|DEPENDS_ON|DEPENDS_ON_APP|USES_EXTERNAL|REPLICATES_TO",
                 filterStartNode: false
             })
@@ -65,7 +65,7 @@ class AlertService:
             
             while queue:
                 u, d = queue.pop(0)
-                if d >= 6: continue
+                if d >= 4: continue
                 
                 for v, r_type, direction in adj.get(u, []):
                     if v in impacted_map: continue
@@ -133,6 +133,10 @@ class AlertService:
                 "summary": {
                     "services": sum(1 for nid in impacted_map if nodes_data.get(nid, {}).get("type") == "Service"),
                     "applications": len(impacted_apps),
-                    "programs": len(impacted_progs)
+                    "programs": len(impacted_progs),
+                    "databases": sum(1 for nid in impacted_map if nodes_data.get(nid, {}).get("type") == "Database"),
+                    "queues": sum(1 for nid in impacted_map if nodes_data.get(nid, {}).get("type") == "Queue"),
+                    "external_systems": sum(1 for nid in impacted_map if nodes_data.get(nid, {}).get("type") == "ExternalSystem"),
+                    "regions": sum(1 for nid in impacted_map if nodes_data.get(nid, {}).get("type") == "Region")
                 }
             }

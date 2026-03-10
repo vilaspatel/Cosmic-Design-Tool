@@ -2,9 +2,9 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: light dark;
+  color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  background-color: #020617;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -18,8 +18,8 @@ body {
   min-height: 100vh;
   overflow: hidden;
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  background-color: #ffffff;
-  color: #2c3e50;
+  background-color: #020617;
+  color: #e2e8f0;
 }
 
 #root {
@@ -35,15 +35,15 @@ body {
 .react-flow__handle {
   width: 12px !important;
   height: 12px !important;
-  background: #3498db !important;
-  border: 2px solid white !important;
+  background: #38bdf8 !important;
+  border: 2px solid #0f172a !important;
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.3) !important;
   cursor: crosshair !important;
   z-index: 100;
 }
 
 .react-flow__handle:hover {
-  background: #e74c3c !important;
+  background: #60a5fa !important;
   transform: scale(1.3);
 }
 
@@ -53,18 +53,18 @@ body {
 
 button {
   border-radius: 8px;
-  border: 1px solid #ccc;
-  padding: 0.6em 1.2em;
+  border: 1px solid #334155;
+  padding: 0.55em 0.95em;
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #f9f9f9;
-  color: #2c3e50;
+  background-color: #111827;
+  color: #e2e8f0;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 button:hover {
-  background-color: #e8f4fd;
-  border-color: #3498db;
+  background-color: #1f2937;
+  border-color: #475569;
 }

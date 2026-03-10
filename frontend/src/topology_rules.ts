@@ -26,6 +26,18 @@ export const TOPOLOGY_RULES: TopologyRule[] = [
     { source: 'Service', target: 'Cache', allowedEdges: ['USES_CACHE'] },
     { source: 'Service', target: 'Queue', allowedEdges: ['PUBLISHES_TO', 'SUBSCRIBES_TO'] },
 
+    // ExternalSystem -> Data (Extension Rules)
+    { source: 'ExternalSystem', target: 'Database', allowedEdges: ['READS_FROM', 'WRITES_TO'] },
+    { source: 'ExternalSystem', target: 'Cache', allowedEdges: ['USES_CACHE'] },
+    { source: 'ExternalSystem', target: 'Queue', allowedEdges: ['PUBLISHES_TO', 'SUBSCRIBES_TO'] },
+
+    // Compute -> Data (Extension Rules)
+    ...['VirtualMachine', 'KubernetesCluster', 'AppService', 'FunctionApp', 'OnPremServer'].flatMap((src): TopologyRule[] => [
+        { source: src as NodeType, target: 'Database', allowedEdges: ['READS_FROM', 'WRITES_TO'] },
+        { source: src as NodeType, target: 'Cache', allowedEdges: ['USES_CACHE'] },
+        { source: src as NodeType, target: 'Queue', allowedEdges: ['PUBLISHES_TO', 'SUBSCRIBES_TO'] }
+    ]),
+
     // Service -> Compute (Multi-type)
     ...['VirtualMachine', 'KubernetesCluster', 'AppService', 'FunctionApp', 'OnPremServer'].map((t): TopologyRule => ({
         source: 'Service', target: t as NodeType, allowedEdges: ['RUNS_ON']

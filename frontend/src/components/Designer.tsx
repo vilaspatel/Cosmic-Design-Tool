@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import CardNode from './CardNode';
 import ReactFlow, {
     Background,
     Controls,
@@ -8,6 +9,7 @@ import ReactFlow, {
     BaseEdge,
     EdgeLabelRenderer
 } from 'reactflow';
+import { PanelLeftOpen, PanelRightClose } from 'lucide-react';
 import type {
     Connection,
     Edge,
@@ -17,14 +19,17 @@ import type {
 import 'reactflow/dist/style.css';
 import type { NodeType, EdgeType, NodeData } from '../app_types';
 import { NodeProperties } from './NodeProperties';
+import { EdgeProperties } from './EdgeProperties';
+import { Sidebar } from './Sidebar';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { getRulesForConnection } from '../topology_rules';
+import dagre from 'dagre';
 
 const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
-const MultiEdge = ({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style = {}, markerEnd, label, data }: any) => {
+const MultiEdge = ({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style = {}, markerEnd, label, data }: any) => {
     const offset = data?.offset || 0;
 
     // Default React Flow control point calculation
@@ -74,18 +79,31 @@ const MultiEdge = ({ sourceX, sourceY, targetX, targetY, sourcePosition, targetP
             {label && (
                 <EdgeLabelRenderer>
                     <div
+                        onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.dispatchEvent(new CustomEvent('delete-edge-event', { detail: id }));
+                        }}
+                        title="Right-click to delete"
                         style={{
                             position: 'absolute',
                             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
-                            background: '#eee',
-                            padding: '2px 4px',
-                            borderRadius: '3px',
-                            fontSize: '10px',
-                            fontWeight: 'bold',
                             pointerEvents: 'all',
+                            display: 'flex',
+                            alignItems: 'center',
+                            background: '#0f172a',
+                            color: '#e2e8f0',
+                            border: '1px solid #334155',
+                            padding: '3px 7px',
+                            borderRadius: '999px',
+                            gap: '4px',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                            cursor: 'context-menu'
                         }}
                     >
-                        {label}
+                        <div style={{ fontSize: '10px', fontWeight: 'bold', letterSpacing: '0.4px' }}>
+                            {label}
+                        </div>
                     </div>
                 </EdgeLabelRenderer>
             )}
@@ -113,28 +131,52 @@ export const Designer: React.FC = () => {
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
     const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
     const [parentRequest, setParentRequest] = useState<ParentRequest | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [libraryCollapsed, setLibraryCollapsed] = useState(false);
+    const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
 
-    const nodeColorMap: Record<NodeType, { bg: string; border: string; text: string }> = {
-        Organization: { bg: '#2c3e50', border: '#1a252f', text: 'white' },
-        Program: { bg: '#34495e', border: '#2c3e50', text: 'white' },
-        Application: { bg: '#3498db', border: '#2980b9', text: 'white' },
-        Service: { bg: '#2ecc71', border: '#27ae60', text: 'white' },
-        ExternalSystem: { bg: '#95a5a6', border: '#7f8c8d', text: 'white' },
-        VirtualMachine: { bg: '#7f8c8d', border: '#34495e', text: 'white' },
-        KubernetesCluster: { bg: '#34495e', border: '#2c3e50', text: 'white' },
-        AppService: { bg: '#16a085', border: '#1abc9c', text: 'white' },
-        FunctionApp: { bg: '#27ae60', border: '#2ecc71', text: 'white' },
-        OnPremServer: { bg: '#2c3e50', border: '#1a252f', text: 'white' },
-        Database: { bg: '#9b59b6', border: '#8e44ad', text: 'white' },
-        Cache: { bg: '#f1c40f', border: '#f39c12', text: '#333' },
-        Queue: { bg: '#e67e22', border: '#d35400', text: 'white' },
-        CloudProvider: { bg: '#2980b9', border: '#3498db', text: 'white' },
-        Subscription: { bg: '#2980b9', border: '#3498db', text: 'white' },
-        Region: { bg: '#2980b9', border: '#3498db', text: 'white' },
-        DataCenter: { bg: '#2980b9', border: '#3498db', text: 'white' }
-    };
+    const onLayout = useCallback(() => {
+        if (!nodes.length) return;
+
+        const dagreGraph = new dagre.graphlib.Graph();
+        dagreGraph.setDefaultEdgeLabel(() => ({}));
+
+        const nodeWidth = 170;
+        const nodeHeight = 60;
+
+        dagreGraph.setGraph({ rankdir: 'TB', ranksep: 80, nodesep: 50 });
+
+        nodes.forEach((node) => {
+            dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+        });
+
+        edges.forEach((edge) => {
+            dagreGraph.setEdge(edge.source, edge.target);
+        });
+
+        dagre.layout(dagreGraph);
+
+        const newNodes = nodes.map((node) => {
+            const nodeWithPosition = dagreGraph.node(node.id);
+            return {
+                ...node,
+                position: {
+                    x: nodeWithPosition.x - nodeWidth / 2,
+                    y: nodeWithPosition.y - nodeHeight / 2,
+                },
+            };
+        });
+
+        setNodes(newNodes);
+
+        window.requestAnimationFrame(() => {
+            if (reactFlowInstance) {
+                reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
+            }
+        });
+    }, [nodes, edges, setNodes, reactFlowInstance]);
 
     // Relationship Rule Engine (now using external rules)
     const getRelationshipRules = (src: NodeType, tgt: NodeType): EdgeType[] => {
@@ -292,8 +334,6 @@ export const Designer: React.FC = () => {
 
     const createNode = (type: NodeType, position: { x: number; y: number }, parentId: string = '') => {
         const newNodeId = uuidv4();
-        const color = nodeColorMap[type] || { bg: '#fff', border: '#ccc', text: '#333' };
-
         // Calculate a unique default name (e.g., Service 1)
         const typeCount = nodes.filter(n => n.data.type === type).length + 1;
         const defaultName = `${type} ${typeCount}`;
@@ -302,18 +342,10 @@ export const Designer: React.FC = () => {
             id: newNodeId,
             type: 'default',
             position,
-            style: {
-                background: color.bg,
-                color: color.text,
-                border: `1px solid ${color.border}`,
-                borderRadius: '5px',
-                padding: '10px',
-                fontSize: '12px',
-                fontWeight: 'bold',
-                width: '150px'
-            },
+            style: { width: '240px', border: 'none', background: 'transparent' },
             data: {
                 label: defaultName,
+                id: newNodeId,
                 type,
                 name: defaultName,
                 parent_id: parentId,
@@ -355,11 +387,13 @@ export const Designer: React.FC = () => {
     };
 
     const onNodeClick = (_: any, node: Node) => {
+        setSelectedEdgeId(null);
         setSelectedNodeId(node.id);
     };
 
     const onPaneClick = useCallback(() => {
         setSelectedNodeId(null);
+        setSelectedEdgeId(null);
     }, []);
 
     const onDeleteNode = useCallback((id: string) => {
@@ -377,6 +411,7 @@ export const Designer: React.FC = () => {
             return newEds;
         });
         setSelectedNodeId(null);
+        setSelectedEdgeId(null);
     }, [setNodes, setEdges]);
 
     const onEdgesDelete = useCallback((deletedEdges: Edge[]) => {
@@ -395,59 +430,53 @@ export const Designer: React.FC = () => {
         });
     }, [setNodes]);
 
+    useEffect(() => {
+        const handleEdgeDelete = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const edgeId = customEvent.detail;
+            setEdges((eds) => {
+                const edgeToDelete = eds.find(x => x.id === edgeId);
+                if (edgeToDelete) {
+                    onEdgesDelete([edgeToDelete]);
+                    return eds.filter(x => x.id !== edgeId);
+                }
+                return eds;
+            });
+        };
+        window.addEventListener('delete-edge-event', handleEdgeDelete);
+        return () => window.removeEventListener('delete-edge-event', handleEdgeDelete);
+    }, [setEdges, onEdgesDelete]);
+
     const onEdgeClick = useCallback((_: any, edge: Edge) => {
-        const sourceNode = nodes.find(n => n.id === edge.source);
-        const targetNode = nodes.find(n => n.id === edge.target);
-        if (!sourceNode || !targetNode) return;
+        setSelectedNodeId(null);
+        setSelectedEdgeId(edge.id);
+    }, []);
 
-        const sourceType = sourceNode.data.type as NodeType;
-        const targetType = targetNode.data.type as NodeType;
-
-        let allowedTypes = getRulesForConnection(sourceType, targetType);
-        if (allowedTypes.length === 0) {
-            allowedTypes = getRulesForConnection(targetType, sourceType);
-        }
-
-        if (allowedTypes.length <= 1) return;
-
-        const currentType = edge.label as EdgeType;
-        const currentIndex = allowedTypes.indexOf(currentType);
-
-        let nextIndex = (currentIndex + 1) % allowedTypes.length;
-        let nextType = allowedTypes[nextIndex];
-
-        const otherEdges = edges.filter(e => e.id !== edge.id && e.source === edge.source && e.target === edge.target);
-
-        let attempts = 0;
-        while (otherEdges.some(e => e.label === nextType) && attempts < allowedTypes.length) {
-            nextIndex = (nextIndex + 1) % allowedTypes.length;
-            nextType = allowedTypes[nextIndex];
-            attempts++;
-        }
-
-        if (nextType === currentType) return;
-
-        console.log(`[Designer] Toggling Edge ${edge.id}: ${currentType} -> ${nextType}`);
-
+    const onUpdateEdge = useCallback((edgeId: string, newSource: string, newTarget: string, newType: EdgeType) => {
         setEdges((eds) => eds.map(e => {
-            if (e.id === edge.id) {
-                return {
+            if (e.id === edgeId) {
+                const updatedEdge = {
                     ...e,
-                    // DO NOT change id to maintain stable rendering
-                    label: nextType,
-                    animated: nextType === 'CALLS',
-                    data: { ...e.data, type: nextType }
+                    source: newSource,
+                    target: newTarget,
+                    label: newType,
+                    animated: newType === 'CALLS',
+                    data: { ...e.data, type: newType }
                 };
+                
+                // Handle hierarchy node updates if applicable
+                const currentType = e.label as string;
+                if (hierarchyEdgeTypes.includes(newType) && !hierarchyEdgeTypes.includes(currentType)) {
+                    setNodes(nds => nds.map(n => n.id === e.target ? { ...n, data: { ...n.data, parent_id: e.source } } : n));
+                } else if (!hierarchyEdgeTypes.includes(newType) && hierarchyEdgeTypes.includes(currentType)) {
+                    setNodes(nds => nds.map(n => n.id === e.target ? { ...n, data: { ...n.data, parent_id: '' } } : n));
+                }
+
+                return updatedEdge;
             }
             return e;
         }));
-
-        if (hierarchyEdgeTypes.includes(nextType)) {
-            setNodes(nds => nds.map(n => n.id === edge.target ? { ...n, data: { ...n.data, parent_id: edge.source } } : n));
-        } else if (hierarchyEdgeTypes.includes(currentType)) {
-            setNodes(nds => nds.map(n => n.id === edge.target ? { ...n, data: { ...n.data, parent_id: '' } } : n));
-        }
-    }, [nodes, edges, setEdges, setNodes]);
+    }, [setEdges, setNodes]);
 
 
     const updateNodeData = (id: string, partialData: Partial<NodeData>) => {
@@ -511,7 +540,7 @@ export const Designer: React.FC = () => {
             // Infrastructure Validation (Mandatory Identifiers)
             if (['VirtualMachine', 'KubernetesCluster', 'AppService', 'FunctionApp', 'OnPremServer', 'Database', 'Queue', 'Cache'].includes(d.type)) {
                 if (!d.properties.resource_name) errors.push(`${d.type} "${d.name || node.id}": Missing Resource Name`);
-                if (!d.properties.datadog_service) errors.push(`${d.type} "${d.name || node.id}": Missing Service Identifier`);
+                if (!d.properties.service_identifier) errors.push(`${d.type} "${d.name || node.id}": Missing Service Identifier`);
             }
         });
 
@@ -593,13 +622,17 @@ export const Designer: React.FC = () => {
     };
 
     const selectedNode = nodes.find(n => n.id === selectedNodeId) || null;
+    const selectedEdge = edges.find(e => e.id === selectedEdgeId) || null;
 
     return (
-        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '10px', background: '#eee', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #ccc' }}>
-                <strong>Architecture Designer</strong>
+        <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', background: '#020617' }}>
+            <div style={{ padding: '12px 14px', background: '#0f172a', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <span style={{ marginRight: '15px', fontSize: '12px', color: '#666' }}>Click node to edit properties</span>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#f8fafc' }}>Architecture Designer</div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>Drag components, connect edges, and validate architecture intent.</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ marginRight: '10px', fontSize: '11px', color: '#94a3b8' }}>Edge labels: CALLS, READS_FROM, WRITES_TO, RUNS_ON</span>
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -607,28 +640,15 @@ export const Designer: React.FC = () => {
                         style={{ display: 'none' }}
                         accept=".json"
                     />
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        style={{ padding: '5px 15px', cursor: 'pointer', marginRight: '5px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px' }}
-                    >
-                        Import Local
-                    </button>
-                    <button
-                        onClick={handleExport}
-                        style={{ padding: '5px 15px', cursor: 'pointer', marginRight: '5px', background: '#fff', border: '1px solid #ccc', borderRadius: '4px' }}
-                    >
-                        Export Local
-                    </button>
-                    <button
-                        onClick={onSave}
-                        style={{ padding: '5px 15px', cursor: 'pointer', background: '#2c3e50', color: 'white', border: 'none', borderRadius: '4px' }}
-                    >
-                        Publish to Engine
-                    </button>
+                    <button onClick={onLayout} style={{ padding: '6px 12px', cursor: 'pointer', background: '#2563eb', color: 'white', border: '1px solid #1d4ed8', borderRadius: '7px', fontSize: '12px' }}>Auto Arrange</button>
+                    <button onClick={() => fileInputRef.current?.click()} style={{ padding: '6px 12px', cursor: 'pointer', background: '#111827', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '7px', fontSize: '12px' }}>Import</button>
+                    <button onClick={handleExport} style={{ padding: '6px 12px', cursor: 'pointer', background: '#111827', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '7px', fontSize: '12px' }}>Export</button>
+                    <button onClick={onSave} style={{ padding: '6px 12px', cursor: 'pointer', background: '#059669', color: 'white', border: '1px solid #047857', borderRadius: '7px', fontSize: '12px' }}>Publish</button>
                 </div>
             </div>
-            <div style={{ flexGrow: 1, display: 'flex' }}>
-                <div style={{ flexGrow: 1 }} ref={reactFlowWrapper}>
+            <div style={{ flexGrow: 1, display: 'flex', minHeight: 0 }}>
+                <Sidebar collapsed={libraryCollapsed} onToggleCollapse={() => setLibraryCollapsed((prev) => !prev)} />
+                <div style={{ flexGrow: 1, position: 'relative' }} ref={reactFlowWrapper}>
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
@@ -643,21 +663,61 @@ export const Designer: React.FC = () => {
                         onPaneClick={onPaneClick}
                         onEdgesDelete={onEdgesDelete}
                         edgeTypes={edgeTypes}
+                        nodeTypes={{ default: CardNode }}
                         fitView
+                        fitViewOptions={{ padding: 0.2, duration: 600 }}
+                        minZoom={0.25}
+                        maxZoom={2.2}
+                        zoomOnScroll={true}
+                        panOnScroll={true}
+                        zoomOnPinch={true}
+                        panOnDrag={true}
                     >
-                        <Background />
+                        <Background color="#1e293b" gap={24} size={1.2} />
                         <Controls />
                     </ReactFlow>
                 </div>
-                {selectedNode && (
-                    <NodeProperties
-                        selectedNode={selectedNode}
-                        nodes={nodes}
-                        onUpdate={updateNodeData}
-                        onDelete={onDeleteNode}
-                        onClose={() => setSelectedNodeId(null)}
-                    />
-                )}
+                <div style={{ width: inspectorCollapsed ? '56px' : '320px', transition: 'width 0.2s ease', borderLeft: '1px solid #1e293b', background: '#0f172a', overflow: 'hidden' }}>
+                    <div style={{ padding: '10px', display: 'flex', justifyContent: 'flex-end', borderBottom: '1px solid #1e293b' }}>
+                        <button
+                            onClick={() => setInspectorCollapsed((prev) => !prev)}
+                            style={{ background: '#111827', border: '1px solid #334155', borderRadius: '8px', color: '#cbd5e1', width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                            title={inspectorCollapsed ? 'Expand Inspector' : 'Collapse Inspector'}
+                        >
+                            {inspectorCollapsed ? <PanelLeftOpen size={14} /> : <PanelRightClose size={14} />}
+                        </button>
+                    </div>
+                    {!inspectorCollapsed && (selectedNode ? (
+                        <NodeProperties
+                            selectedNode={selectedNode}
+                            nodes={nodes}
+                            onUpdate={updateNodeData}
+                            onDelete={onDeleteNode}
+                            onClose={() => setSelectedNodeId(null)}
+                        />
+                    ) : selectedEdge ? (
+                        <EdgeProperties
+                            selectedEdge={selectedEdge}
+                            nodes={nodes}
+                            edges={edges}
+                            onUpdateConnection={onUpdateEdge}
+                            onDelete={(id) => {
+                                const e = edges.find(x => x.id === id);
+                                if (e) onEdgesDelete([e]);
+                                setEdges(eds => eds.filter(x => x.id !== id));
+                                setSelectedEdgeId(null);
+                            }}
+                            onClose={() => setSelectedEdgeId(null)}
+                        />
+                    ) : (
+                        <div style={{ width: '100%', padding: '18px', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#f1f5f9', marginBottom: '8px' }}>Inspector</div>
+                            <div style={{ fontSize: '12px', lineHeight: 1.5 }}>
+                                Select a node or connection to inspect and edit its metadata, hierarchy, and relationship rules.
+                            </div>
+                        </div>
+                    ))}
+                </div>
                 {parentRequest && (
                     <div style={{
                         position: 'absolute',

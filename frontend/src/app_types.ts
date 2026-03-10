@@ -65,7 +65,7 @@ export interface NodeData {
         [key: string]: any;
     };
     // Legacy fields for backward compatibility during transition
-    datadog_service?: string; // Used as 'SERVICE IDENTIFIER' in UI
+    service_identifier?: string; // Used as 'SERVICE IDENTIFIER' in UI
 }
 
 export interface EdgeData {
@@ -93,5 +93,9 @@ export interface ImpactAnalysis {
         services: number;
         applications: number;
         programs: number;
+        databases: number;
+        queues: number;
+        external_systems: number;
+        regions: number;
     };
 }

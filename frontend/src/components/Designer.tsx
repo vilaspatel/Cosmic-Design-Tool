@@ -14,7 +14,8 @@ import type {
     Connection,
     Edge,
     Node,
-    ReactFlowInstance
+    ReactFlowInstance,
+    OnSelectionChangeParams
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { NodeType, EdgeType, NodeData } from '../app_types';
@@ -452,6 +453,35 @@ export const Designer: React.FC = () => {
         setSelectedEdgeId(edge.id);
     }, []);
 
+    const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: OnSelectionChangeParams) => {
+        if (selectedNodes.length > 0) {
+            setSelectedNodeId(selectedNodes[0].id);
+            setSelectedEdgeId(null);
+            return;
+        }
+
+        if (selectedEdges.length > 0) {
+            setSelectedNodeId(null);
+            setSelectedEdgeId(selectedEdges[0].id);
+            return;
+        }
+
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+    }, []);
+
+    useEffect(() => {
+        if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+            setSelectedNodeId(null);
+        }
+    }, [nodes, selectedNodeId]);
+
+    useEffect(() => {
+        if (selectedEdgeId && !edges.some((edge) => edge.id === selectedEdgeId)) {
+            setSelectedEdgeId(null);
+        }
+    }, [edges, selectedEdgeId]);
+
     const onUpdateEdge = useCallback((edgeId: string, newSource: string, newTarget: string, newType: EdgeType) => {
         setEdges((eds) => eds.map(e => {
             if (e.id === edgeId) {
@@ -661,6 +691,7 @@ export const Designer: React.FC = () => {
                         onNodeClick={onNodeClick}
                         onEdgeClick={onEdgeClick}
                         onPaneClick={onPaneClick}
+                        onSelectionChange={onSelectionChange}
                         onEdgesDelete={onEdgesDelete}
                         edgeTypes={edgeTypes}
                         nodeTypes={{ default: CardNode }}

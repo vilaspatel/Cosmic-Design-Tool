@@ -6,6 +6,8 @@ import type { NodeData } from '../app_types';
 import { Search, Compass, Database, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import CardNode from './CardNode';
 
+const normalizeNodeId = (id: string | number | null | undefined): string => String(id ?? '');
+
 const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
     const graph = new dagre.graphlib.Graph();
     graph.setDefaultEdgeLabel(() => ({}));
@@ -81,11 +83,11 @@ export const ArchitectureExplorer: React.FC = () => {
 
     const graphNodes = useMemo(() => {
         return filteredNodes.map((node) => ({
-            id: node.id,
+            id: normalizeNodeId(node.id as unknown as string | number),
             type: 'default',
             position: { x: 0, y: 0 },
             data: {
-                id: node.id,
+                id: normalizeNodeId(node.id as unknown as string | number),
                 type: node.type,
                 name: node.name,
                 properties: node.properties,
@@ -94,7 +96,7 @@ export const ArchitectureExplorer: React.FC = () => {
             style: {
                 width: 240,
                 background: 'transparent',
-                border: selectedNodeId === node.id ? '1px solid #475569' : 'none',
+                border: selectedNodeId === normalizeNodeId(node.id as unknown as string | number) ? '1px solid #475569' : 'none',
                 borderRadius: '10px'
             }
         })) as Node[];
@@ -106,8 +108,8 @@ export const ArchitectureExplorer: React.FC = () => {
             .filter((edge) => ids.has(edge.from) && ids.has(edge.to))
             .map((edge) => ({
                 id: `${edge.from}-${edge.to}-${edge.type}`,
-                source: edge.from,
-                target: edge.to,
+                source: normalizeNodeId(edge.from as unknown as string | number),
+                target: normalizeNodeId(edge.to as unknown as string | number),
                 type: 'smoothstep',
                 label: edge.type,
                 labelStyle: { fill: '#cbd5e1', fontSize: 10, fontWeight: 700 },
@@ -119,8 +121,18 @@ export const ArchitectureExplorer: React.FC = () => {
     }, [filteredNodes, registryEdges]);
 
     const layoutNodes = useMemo(() => getLayoutedElements(graphNodes, graphEdges), [graphNodes, graphEdges]);
-    const selectedNode = useMemo(() => registryNodes.find((node) => node.id === selectedNodeId) || null, [registryNodes, selectedNodeId]);
-    const connectedEdges = useMemo(() => registryEdges.filter((edge) => edge.from === selectedNodeId || edge.to === selectedNodeId), [registryEdges, selectedNodeId]);
+    const selectedNode = useMemo(
+        () => registryNodes.find((node) => normalizeNodeId(node.id as unknown as string | number) === selectedNodeId) || null,
+        [registryNodes, selectedNodeId]
+    );
+    const connectedEdges = useMemo(
+        () => registryEdges.filter(
+            (edge) =>
+                normalizeNodeId(edge.from as unknown as string | number) === selectedNodeId ||
+                normalizeNodeId(edge.to as unknown as string | number) === selectedNodeId
+        ),
+        [registryEdges, selectedNodeId]
+    );
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', width: '100%', minHeight: 0, background: '#020617' }}>
@@ -165,12 +177,12 @@ export const ArchitectureExplorer: React.FC = () => {
                                 {filteredNodes.map((node) => (
                                     <button
                                         key={node.id}
-                                        onClick={() => setSelectedNodeId(node.id)}
+                                        onClick={() => setSelectedNodeId(normalizeNodeId(node.id as unknown as string | number))}
                                         style={{
                                             textAlign: 'left',
                                             width: '100%',
-                                            background: selectedNodeId === node.id ? '#1e293b' : '#111827',
-                                            border: selectedNodeId === node.id ? '1px solid #475569' : '1px solid #334155',
+                                            background: selectedNodeId === normalizeNodeId(node.id as unknown as string | number) ? '#1e293b' : '#111827',
+                                            border: selectedNodeId === normalizeNodeId(node.id as unknown as string | number) ? '1px solid #475569' : '1px solid #334155',
                                             borderRadius: '8px',
                                             padding: '8px'
                                         }}
@@ -186,7 +198,7 @@ export const ArchitectureExplorer: React.FC = () => {
 
                 <div style={{ flexGrow: 1, minWidth: 0 }}>
                     <ReactFlowProvider>
-                        <ExplorerFlow nodes={layoutNodes} edges={graphEdges} onNodeClick={(node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} />
+                        <ExplorerFlow nodes={layoutNodes} edges={graphEdges} onNodeClick={(node) => setSelectedNodeId(normalizeNodeId(node.id as unknown as string | number))} onPaneClick={() => setSelectedNodeId(null)} />
                     </ReactFlowProvider>
                 </div>
 

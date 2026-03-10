@@ -7,6 +7,8 @@ import { AlertTriangle, Search, Server, Layout, Database, Layers, Globe, GitBran
 import type { ImpactAnalysis } from '../app_types';
 import CardNode from './CardNode';
 
+const normalizeNodeId = (id: string | number | null | undefined): string => String(id ?? '');
+
 const panelStyle: React.CSSProperties = {
     background: '#0f172a',
     border: '1px solid #1e293b',
@@ -79,18 +81,21 @@ export const ImpactViewer: React.FC = () => {
         try {
             const res = await axios.get(`http://localhost:8000/impact/${serviceName.trim()}`);
             const data: ImpactAnalysis = res.data;
-            const impactedDepth = new Map(data.impacted_nodes.map((node) => [node.id, node.depth]));
+            const impactedDepth = new Map(
+                data.impacted_nodes.map((node) => [normalizeNodeId(node.id as unknown as string | number), node.depth])
+            );
 
             const flowNodes: Node[] = data.nodes.map((node) => {
-                const depth = impactedDepth.get(node.id);
+                const nodeId = normalizeNodeId(node.id as unknown as string | number);
+                const depth = impactedDepth.get(nodeId);
                 const isImpacted = depth !== undefined;
                 const borderColor = depth === 0 ? '#ef4444' : depth === 1 ? '#f59e0b' : isImpacted ? '#eab308' : '#334155';
                 return {
-                    id: node.id,
+                    id: nodeId,
                     type: 'default',
                     position: { x: 0, y: 0 },
                     data: {
-                        id: node.id,
+                        id: nodeId,
                         type: node.type,
                         name: node.name,
                         properties: node.properties,
@@ -104,14 +109,18 @@ export const ImpactViewer: React.FC = () => {
                 };
             });
 
-            const impacted = new Set(data.impacted_nodes.map((item) => item.id));
+            const impacted = new Set(
+                data.impacted_nodes.map((item) => normalizeNodeId(item.id as unknown as string | number))
+            );
             const flowEdges: Edge[] = data.edges.map((edge) => {
-                const isImpactPath = impacted.has(edge.from) && impacted.has(edge.to);
+                const fromId = normalizeNodeId(edge.from as unknown as string | number);
+                const toId = normalizeNodeId(edge.to as unknown as string | number);
+                const isImpactPath = impacted.has(fromId) && impacted.has(toId);
                 const color = isImpactPath ? '#ef4444' : '#64748b';
                 return {
                     id: `edge-${edge.from}-${edge.to}-${edge.type}`,
-                    source: edge.from,
-                    target: edge.to,
+                    source: fromId,
+                    target: toId,
                     type: 'smoothstep',
                     label: edge.type,
                     labelStyle: { fill: '#cbd5e1', fontSize: 10, fontWeight: 700 },
@@ -134,13 +143,16 @@ export const ImpactViewer: React.FC = () => {
         }
     };
 
-    const selectedNode = useMemo(() => impactData?.nodes.find((node) => node.id === selectedNodeId) || null, [impactData, selectedNodeId]);
+    const selectedNode = useMemo(
+        () => impactData?.nodes.find((node) => normalizeNodeId(node.id as unknown as string | number) === selectedNodeId) || null,
+        [impactData, selectedNodeId]
+    );
     const summary = impactData?.summary;
     const impactTree = useMemo(() => {
         if (!impactData) return [];
         return [...impactData.impacted_nodes].sort((a, b) => a.depth - b.depth).map((item) => ({
             ...item,
-            node: impactData.nodes.find((n) => n.id === item.id)
+            node: impactData.nodes.find((n) => normalizeNodeId(n.id as unknown as string | number) === normalizeNodeId(item.id as unknown as string | number))
         }));
     }, [impactData]);
 
@@ -214,12 +226,12 @@ export const ImpactViewer: React.FC = () => {
                                 {impactTree.map((item) => (
                                     <button
                                         key={item.id}
-                                        onClick={() => setSelectedNodeId(item.id)}
+                                        onClick={() => setSelectedNodeId(normalizeNodeId(item.id as unknown as string | number))}
                                         style={{
                                             textAlign: 'left',
                                             width: '100%',
-                                            background: selectedNodeId === item.id ? '#1e293b' : '#111827',
-                                            border: selectedNodeId === item.id ? '1px solid #475569' : '1px solid #334155',
+                                            background: selectedNodeId === normalizeNodeId(item.id as unknown as string | number) ? '#1e293b' : '#111827',
+                                            border: selectedNodeId === normalizeNodeId(item.id as unknown as string | number) ? '1px solid #475569' : '1px solid #334155',
                                             borderRadius: '8px',
                                             padding: '8px',
                                             color: '#e2e8f0'
@@ -240,7 +252,7 @@ export const ImpactViewer: React.FC = () => {
 
                 <div style={{ flexGrow: 1, minWidth: 0 }}>
                     <ReactFlowProvider>
-                        <FlowView nodes={nodes} edges={edges} onNodeClick={(node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} />
+                        <FlowView nodes={nodes} edges={edges} onNodeClick={(node) => setSelectedNodeId(normalizeNodeId(node.id as unknown as string | number))} onPaneClick={() => setSelectedNodeId(null)} />
                     </ReactFlowProvider>
                 </div>
 
